@@ -1,9 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"github.com/gitwillsky/slimgo/log"
 	"github.com/gitwillsky/slimgo/utils"
+	"bytes"
 	"strings"
 	"path"
 	"fmt"
@@ -72,15 +72,16 @@ func (r *Router) Register(method, urlPath string, handlers ...Handler) {
 				}
 
 				fileName, file, line := utils.GetFuncInfo(handlers[index])
-				fileName = fileName[ strings.LastIndexByte(fileName, '.')+1:]
+				fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 				_, file = path.Split(file)
 				buf.WriteString(fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 			}
+
 			log.Infof("mapped filter: {%s} to: [%s]%s", buf.String(), method, urlPath)
 		}
 
-		fileName, file, line := utils.GetFuncInfo(handlers[0])
-		fileName = fileName[ strings.LastIndexByte(fileName, '.')+1:]
+		fileName, file, line := utils.GetFuncInfo(handlers[len(handlers)-1])
+		fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 		_, file = path.Split(file)
 		log.Infof("mapped handler: {%s} to: [%s]%s", fmt.Sprintf("%s[%d]:%s", file, line, fileName), method, urlPath)
 	}
