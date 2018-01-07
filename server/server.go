@@ -82,7 +82,7 @@ func (s *Server) AddFilter(filters ...Handler) {
 				fileName, file, line := utils.GetFuncInfo(filter)
 				fileName = fileName[ strings.LastIndexByte(fileName, '.')+1:]
 				_, file = path.Split(file)
-				log.Infof("mapped filter: {%s} to: /*", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
+				log.Infof("mapped global filter: {%s} to: /*", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 			}
 		}
 	}
