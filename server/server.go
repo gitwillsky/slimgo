@@ -46,7 +46,9 @@ func New() *Server {
 		startTime:        time.Now(),
 	}
 
-	fmt.Printf(banner, Version, runtime.Version())
+	if log.GetLevel() >= log.LevelInformational {
+		fmt.Printf(banner, Version, runtime.Version())
+	}
 	return s
 }
 
@@ -73,7 +75,7 @@ func (s *Server) StartTLS(addr, certFile, keyFile string) error {
 //	}
 //}
 
-// PreRouting 注册路由之前的过滤器
+// AddFilter 注册全局过滤器
 func (s *Server) AddFilter(filters ...Handler) {
 	for _, filter := range filters {
 		s.globalFilters = append(s.globalFilters, filter)

@@ -10,9 +10,9 @@ func Test_Server(t *testing.T) {
 	s := New()
 	s.AddFilter(func(c *Context) (interface{}, error) {
 		start := time.Now()
-		c.Next()
-		fmt.Printf("use time : %vs\n", time.Since(start).Seconds())
-		return nil, nil
+		r, e := c.Next()
+		fmt.Printf("use time : %.3f s\n", time.Since(start).Seconds())
+		return r, e
 	})
 
 	s.GET("/post/:id", func(c *Context) (interface{}, error) {
