@@ -1,14 +1,14 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 
 	"github.com/gitwillsky/slimgo/log"
 	"github.com/gitwillsky/slimgo/utils"
-	"fmt"
-	"path"
 )
 
 // param router param
@@ -84,6 +84,10 @@ func (c *Context) GetParam(key string) string {
 
 func (c *Context) GetRegURLPath() string {
 	return c.regPath
+}
+
+func (c *Context) GetResponseWriter() http.ResponseWriter {
+	return c.response
 }
 
 func (c *Context) AddHandlers(handlers ...Handler) {
