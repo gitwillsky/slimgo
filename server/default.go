@@ -4,7 +4,10 @@ import (
 	"net/http"
 	"fmt"
 	"errors"
+	"github.com/json-iterator/go"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 const banner = `
  ___  __    ____  __  __  ___  _____

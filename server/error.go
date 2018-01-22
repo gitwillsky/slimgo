@@ -4,7 +4,6 @@ import (
 	"runtime"
 	"fmt"
 	"time"
-	"encoding/json"
 	"github.com/gitwillsky/slimgo/utils"
 )
 
