@@ -76,7 +76,7 @@ func (s *Server) StartTLS(addr, certFile, keyFile string) error {
 //}
 
 // AddFilter 注册全局过滤器
-func (s *Server) AddFilter(filters ...Handler) {
+func (s *Server) AddServerFilter(filters ...Handler) {
 	for _, filter := range filters {
 		s.globalFilters = append(s.globalFilters, filter)
 		if log.GetLevel() >= log.LevelInformational {
@@ -142,12 +142,12 @@ func (s *Server) Root(rootPath string, handlers ...Handler) *groupRoutes {
 	return g
 }
 
-func (g *groupRoutes) AddFilter(handlers ...Handler) *groupRoutes {
+func (g *groupRoutes) AddRouterFilter(handlers ...Handler) *groupRoutes {
 	g.filters = append(g.filters, handlers...)
 	return g
 }
 
-func (g *groupRoutes) ClearFilters() *groupRoutes {
+func (g *groupRoutes) ClearRouterFilters() *groupRoutes {
 	g.filters = make([]Handler, 0)
 	return g
 }
