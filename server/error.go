@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 	"github.com/gitwillsky/slimgo/utils"
+	"github.com/gitwillsky/slimgo/log"
 )
 
 type handlerError struct {
@@ -23,8 +24,10 @@ func (c *Context) NewError(statusCode int, errs ...error) error {
 	}
 
 	result.Date = time.Now().Format("2006-01-02 15:04:05")
-	_, file, line, _ := runtime.Caller(1)
-	result.Debug = fmt.Sprintf("%s [%d]", file, line)
+	if log.GetLevel() == log.LevelDebug {
+		_, file, line, _ := runtime.Caller(1)
+		result.Debug = fmt.Sprintf("%s [%d]", file, line)
+	}
 
 	return result
 }
