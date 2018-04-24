@@ -64,4 +64,6 @@ func (c *consoleLog) Message(message string, level LogLevel) error {
 func (c *consoleLog) Flush() {}
 
 // imp Close method
-func (c *consoleLog) Close() { //c.writerCloser.Close() }
+func (c *consoleLog) Close() { 
+	//c.writerCloser.Close() 
+}
