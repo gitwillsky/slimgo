@@ -17,7 +17,7 @@
 //	log.Alert("Alert info: %s",alert) 			// Alert
 //	log.Error("error")	//error
 
-package log
+package slimgo
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ type LogLevel uint8
 
 // RFC5424 log message levels.
 const (
-	LevelEmergency     LogLevel = iota
+	LevelEmergency LogLevel = iota
 	LevelAlert
 	LevelCritical
 	LevelError

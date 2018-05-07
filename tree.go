@@ -1,7 +1,7 @@
 // Copyright 2013 Julien Schmidt. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be found
 // in the LICENSE file.
-package server
+package slimgo
 
 import (
 	"strings"
@@ -33,7 +33,7 @@ func countParams(path string) uint8 {
 type nodeType uint8
 
 const (
-	staticType   nodeType = iota // default
+	staticType nodeType = iota // default
 	rootType
 	paramType
 	catchAllType
@@ -144,7 +144,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 
 					// Check if the wildcard matches
 					if len(path) >= len(n.path) && n.path == path[:len(n.path)] &&
-					// Check for longer wildcard, e.g. :name and :names
+						// Check for longer wildcard, e.g. :name and :names
 						(len(n.path) >= len(path) || path[len(n.path)] == '/') {
 						continue walk
 					} else {

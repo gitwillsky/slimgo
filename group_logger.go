@@ -1,4 +1,4 @@
-package log
+package slimgo
 
 // usage:
 // log.NewGroupLogger(log.LevelInformational).Use(map[string]string {
@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gitwillsky/slimgo/utils"
 	"strings"
 )
 
@@ -133,7 +132,7 @@ func (g *groupLogger) Use(loggers map[string]string) {
 		}
 
 		if err := impl.Init(config); err != nil {
-			fmt.Printf("init log implement [%s] failed, %s", err.Error())
+			fmt.Printf("init log implement [%s] failed, %s", name, err.Error())
 			continue
 		}
 
@@ -198,7 +197,7 @@ func (g *groupLogger) format(msg *message) string {
 		for i := 0; i < g.fileInfoLen-len(fileInfo); i++ {
 			blank[i] = ' '
 		}
-		fileInfo = utils.BytesToString(&blank) + fileInfo
+		fileInfo = BytesToString(&blank) + fileInfo
 	} else {
 		g.fileInfoLen = len(fileInfo)
 	}

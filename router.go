@@ -1,12 +1,10 @@
-package server
+package slimgo
 
 import (
-	"github.com/gitwillsky/slimgo/log"
-	"github.com/gitwillsky/slimgo/utils"
 	"bytes"
-	"strings"
-	"path"
 	"fmt"
+	"path"
+	"strings"
 )
 
 // Router server router
@@ -42,14 +40,14 @@ type Router struct {
 // communication with a proxy).
 func (r *Router) Register(method, urlPath string, handlers ...Handler) {
 	if urlPath[0] != '/' {
-		log.Alert("path must begin with '/' in path '" + urlPath + "'")
+		Alert("path must begin with '/' in path '" + urlPath + "'")
 	}
 
 	if handlers == nil || len(handlers) == 0 {
-		log.Alert("handlers can not be null")
+		Alert("handlers can not be null")
 	}
 
-	urlPath = utils.CleanURLPath(urlPath)
+	urlPath = CleanURLPath(urlPath)
 
 	if r.trees == nil {
 		r.trees = make(map[string]*node)
@@ -63,7 +61,7 @@ func (r *Router) Register(method, urlPath string, handlers ...Handler) {
 
 	root.addRoute(urlPath, handlers)
 
-	if log.GetLevel() >= log.LevelInformational {
+	if GetLevel() >= LevelInformational {
 		buf := bytes.Buffer{}
 		if len(handlers) > 1 {
 			for index := 0; index < len(handlers)-1; index++ {
@@ -71,18 +69,18 @@ func (r *Router) Register(method, urlPath string, handlers ...Handler) {
 					buf.WriteByte(',')
 				}
 
-				fileName, file, line := utils.GetFuncInfo(handlers[index])
+				fileName, file, line := GetFuncInfo(handlers[index])
 				fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 				_, file = path.Split(file)
 				buf.WriteString(fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 			}
 
-			log.Infof("mapped filter: {%s} to: [%s]%s", buf.String(), method, urlPath)
+			Infof("mapped filter: {%s} to: [%s]%s", buf.String(), method, urlPath)
 		}
 
-		fileName, file, line := utils.GetFuncInfo(handlers[len(handlers)-1])
+		fileName, file, line := GetFuncInfo(handlers[len(handlers)-1])
 		fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 		_, file = path.Split(file)
-		log.Infof("mapped handler: {%s} to: [%s]%s", fmt.Sprintf("%s[%d]:%s", file, line, fileName), method, urlPath)
+		Infof("mapped handler: {%s} to: [%s]%s", fmt.Sprintf("%s[%d]:%s", file, line, fileName), method, urlPath)
 	}
 }

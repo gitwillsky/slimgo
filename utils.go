@@ -1,4 +1,88 @@
-package utils
+package slimgo
+
+import (
+	"errors"
+	"fmt"
+	"math"
+	"os"
+	"path"
+	"reflect"
+	"runtime"
+	"unsafe"
+)
+
+// GetFuncInfo 通过反射获取方法信息
+func GetFuncInfo(i interface{}) (funcName, file string, line int) {
+	pc := reflect.ValueOf(i).Pointer()
+	funcInfo := runtime.FuncForPC(pc)
+	funcName = funcInfo.Name()
+	file, line = funcInfo.FileLine(pc)
+	return
+}
+
+func minInt(a, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
+}
+
+func BytesToString(b *[]byte) string {
+	return *(*string)(unsafe.Pointer(b))
+}
+
+func StringToBytes(s *string) []byte {
+	x := (*[2]uintptr)(unsafe.Pointer(s))
+	h := [3]uintptr{x[0], x[1], x[1]}
+	return *(*[]byte)(unsafe.Pointer(&h))
+}
+
+func logn(n, b float64) float64 {
+	return math.Log(n) / math.Log(b)
+}
+
+func humanateBytes(s uint64, base float64, sizes []string) string {
+	if s < 10 {
+		return fmt.Sprintf("%d B", s)
+	}
+	e := math.Floor(logn(float64(s), base))
+	suffix := sizes[int(e)]
+	val := float64(s) / math.Pow(base, math.Floor(e))
+	f := "%.0f"
+	if val < 10 {
+		f = "%.1f"
+	}
+
+	return fmt.Sprintf(f+" %s", val, suffix)
+}
+
+// FileSize calculates the file size and generate user-friendly string.
+func FileSize(s int64) string {
+	sizes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
+	return humanateBytes(uint64(s), 1024, sizes)
+}
+
+// open or create log file.
+func OpenORCreateFile(fullname string) (*os.File, error) {
+	if len(fullname) > 0 {
+		// prejudge dir exists.
+		if _, err := os.Stat(fullname); os.IsNotExist(err) {
+			// oh, it not exists, create.
+			if err = os.Mkdir(path.Dir(fullname), 0666); os.IsNotExist(err) {
+				panic("create file path failed, permission denied")
+			}
+		}
+
+		// open file with write, append, create mode.
+		if file, err := os.OpenFile(fullname, os.O_WRONLY|os.O_APPEND|os.O_CREATE,
+			0666); err != nil {
+			return nil, err
+		} else {
+			return file, nil
+		}
+	}
+	return nil, errors.New("file name can not be null")
+}
 
 // internal helper to lazily create a buffer if necessary
 func bufApp(buf *[]byte, s string, w int, c byte) {

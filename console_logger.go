@@ -9,12 +9,12 @@
 //	SlimGo log implementator. provide console log function.
 //
 
-package log
+package slimgo
 
 import (
-	"os"
 	"fmt"
 	"io"
+	"os"
 )
 
 type brush func(string) string
@@ -51,7 +51,7 @@ func newConsole() ILogger {
 // init console log
 func (c *consoleLog) Init(config string) error {
 	c.writerCloser = os.Stdout
-	return nil 
+	return nil
 }
 
 // imp Message method
@@ -64,6 +64,6 @@ func (c *consoleLog) Message(message string, level LogLevel) error {
 func (c *consoleLog) Flush() {}
 
 // imp Close method
-func (c *consoleLog) Close() { 
-	//c.writerCloser.Close() 
+func (c *consoleLog) Close() {
+	//c.writerCloser.Close()
 }

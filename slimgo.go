@@ -1,18 +1,16 @@
-package server
+package slimgo
 
 import (
-	"net/http"
 	"fmt"
-	"github.com/gitwillsky/slimgo/log"
+	"net/http"
+	"path"
+	"runtime"
 	"runtime/debug"
 	"strings"
-	"github.com/gitwillsky/slimgo/utils"
 	"time"
-	"runtime"
-	"path"
 )
 
-const Version = "slimgo1.0.1"
+const Version = "slimgo1.0.0"
 
 // Server http server handler
 type Server struct {
@@ -46,25 +44,25 @@ func New() *Server {
 		startTime:        time.Now(),
 	}
 
-	if log.GetLevel() >= log.LevelInformational {
+	if GetLevel() >= LevelInformational {
 		fmt.Printf(banner, Version, runtime.Version())
 	}
 	return s
 }
 
 func (s *Server) Start(addr string) error {
-	log.Infof("web server listen on port %s (http)", addr)
+	Infof("web server listen on port %s (http)", addr)
 	server := &http.Server{Addr: addr, Handler: s}
 	s.servers = append(s.servers, server)
-	log.Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
+	Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
 	return server.ListenAndServe()
 }
 
 func (s *Server) StartTLS(addr, certFile, keyFile string) error {
-	log.Infof("web server listen on port %s (https)", addr)
+	Infof("web server listen on port %s (https)", addr)
 	server := &http.Server{Addr: addr, Handler: s}
 	s.servers = append(s.servers, server)
-	log.Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
+	Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
 	return server.ListenAndServeTLS(certFile, keyFile)
 }
 
@@ -79,12 +77,12 @@ func (s *Server) StartTLS(addr, certFile, keyFile string) error {
 func (s *Server) AddServerFilter(filters ...Handler) {
 	for _, filter := range filters {
 		s.globalFilters = append(s.globalFilters, filter)
-		if log.GetLevel() >= log.LevelInformational {
+		if GetLevel() >= LevelInformational {
 			for _, filter := range filters {
-				fileName, file, line := utils.GetFuncInfo(filter)
-				fileName = fileName[ strings.LastIndexByte(fileName, '.')+1:]
+				fileName, file, line := GetFuncInfo(filter)
+				fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 				_, file = path.Split(file)
-				log.Infof("mapped global filter: {%s} to: /*", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
+				Infof("mapped global filter: {%s} to: /*", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 			}
 		}
 	}
@@ -246,11 +244,11 @@ func (s *Server) initContext(ctx *Context) {
 		// maybe need clean path
 		if s.router.RedirectFixedPath {
 			cleanedPath, found := root.findCaseInsensitivePath(
-				utils.CleanURLPath(urlPath),
+				CleanURLPath(urlPath),
 				s.router.RedirectTrailingSlash,
 			)
 			if found {
-				ctx.Request.URL.Path = utils.BytesToString(&cleanedPath)
+				ctx.Request.URL.Path = BytesToString(&cleanedPath)
 				ctx.AddHandlers(func(context *Context) (interface{}, error) {
 					http.Redirect(ctx.response, ctx.Request, ctx.Request.URL.String(), httpCode)
 					return httpCode, nil
@@ -271,7 +269,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// now this is raw response can not use compress
 			w.Header().Del("Content-Encoding")
 			defaultPanicHandler(w, req, err, debug.Stack())
-			log.Error(debug.Stack())
+			Error(debug.Stack())
 		}
 	}()
 

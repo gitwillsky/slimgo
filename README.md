@@ -1,11 +1,10 @@
-SlimGo Web Components
-======
+# SlimGo Web Components
+
 ![slimgo logo](./logo/logo.png)
 
 又一个 go web 框架，wheel。
 
-起步
-======
+# 起步
 
 #### 安装
 
@@ -22,19 +21,18 @@ import (
 	"fmt"
 	"net/http"
 
-    "github.com/gitwillsky/slimgo/log"
-	"github.com/gitwillsky/slimgo/server"
+	"github.com/gitwillsky/slimgo"
 )
 
 func main() {
-	s := server.New()
+	s := slimgo.New()
 
 	// 全局过滤器 global filter
 	// 全局过滤器在route之前执行
-    s.AddFilter(func(ctx *server.Context) (interface{}, error) {
+    s.AddServerFilter(func(ctx *server.Context) (interface{}, error) {
         now := time.Now()
 		r, e := ctx.Next()
-		
+
 		// 这里可以定义router handler的结果处理，比如自定义json解析逻辑， 模板渲染逻辑，自定义错误处理等
 
 		// ctx.getRegURLPath() 方法获得注册路由时的URL原始字符串，global filter 由系统定义为 "/*"
@@ -44,7 +42,7 @@ func main() {
 
 	// 注册单个handler
 	s.GET("/hello", func(ctx *server.Context) (interface{}, error) {
-		return "hello world", nil 
+		return "hello world", nil
 	})
 
 	//  根（组）路由支持
@@ -52,7 +50,7 @@ func main() {
 		log.Infof("进入根路由")
 		// 这里适合进行路由权限校验等逻辑
 		// 这里如果返回结果或者错误，那么下面的handler将不会执行
-		return nil, nil 
+		return nil, nil
 	}).
 		GET("/files/*filepath", system.StaticFileHandler).
 
@@ -78,14 +76,11 @@ func main() {
 }
 ```
 
-参考
-======
+# 参考
 
-1. beego (github.com/astaxie/beego)
-1. http-router(github.com/julienschmidt/httprouter)
+1.  beego (github.com/astaxie/beego)
+1.  http-router(github.com/julienschmidt/httprouter)
 
-
-联系
-======
+# 联系
 
 Author Email: hdu_willsky@foxmail.com

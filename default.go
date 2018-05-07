@@ -1,9 +1,10 @@
-package server
+package slimgo
 
 import (
-	"net/http"
-	"fmt"
 	"errors"
+	"fmt"
+	"net/http"
+
 	"github.com/json-iterator/go"
 )
 
@@ -84,4 +85,3 @@ func defaultNotFoundHandler(ctx *Context) (interface{}, error) {
 func defaultMethodNotAllowHandler(ctx *Context) (interface{}, error) {
 	return nil, ctx.NewError(405, errors.New("Method Not Allowed"))
 }
-

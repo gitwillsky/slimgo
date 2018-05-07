@@ -9,14 +9,12 @@
 //	SlimGo log implementator. provide file log function.
 //
 
-package log
+package slimgo
 
 import (
 	"errors"
-	"os"
-	"encoding/json"
-	"github.com/gitwillsky/slimgo/utils"
 	"fmt"
+	"os"
 )
 
 type fileLog struct {
@@ -49,7 +47,7 @@ func (f *fileLog) Init(configStr string) error {
 	}
 
 	// open log file and set it to default output.
-	if file, err := utils.OpenORCreateFile(config.FileName); err != nil {
+	if file, err := OpenORCreateFile(config.FileName); err != nil {
 		return err
 	} else {
 		f.file = file
