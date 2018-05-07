@@ -1,6 +1,6 @@
 # SlimGo Web Components
 
-![slimgo logo](./logo/logo.png)
+![slimgo logo](./logo.png)
 
 又一个 go web 框架，wheel。
 
