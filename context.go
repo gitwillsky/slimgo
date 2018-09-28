@@ -51,7 +51,7 @@ var contextPool = sync.Pool{
 // newContext create a context
 func newContext(res http.ResponseWriter, req *http.Request, handlers []Handler) *Context {
 	c := contextPool.Get().(*Context)
-	c.response = NewResponseWriter(res, req, true)
+	c.response = NewResponseWriter(res)
 	c.Request = req
 	c.data = &sync.Map{}
 	c.handlers = make([]Handler, len(handlers)*2)
