@@ -32,6 +32,9 @@ func (r *responseWriter) Written() bool {
 }
 
 func (r *responseWriter) Write(b []byte) (int, error) {
+	if r.code == 0 {
+		r.code = http.StatusOK
+	}
 	return r.res.Write(b)
 }
 
