@@ -191,7 +191,6 @@ func (c *Context) resolveHandlerResult(data interface{}, e error) {
 				c.WriteHeader(data.(int))
 				return
 			}
-			fmt.Fprint(c.response, data)
 		default:
 			http.Error(c.response, "No resource resolver for "+typeName+", please add resouce filter to handle this", 500)
 		}
