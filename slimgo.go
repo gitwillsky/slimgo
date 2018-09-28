@@ -133,7 +133,7 @@ type groupRoutes struct {
 func (s *Server) Root(rootPath string, handlers ...Handler) *groupRoutes {
 	g := &groupRoutes{
 		rootPath: rootPath,
-		filters:  make([]Handler, len(handlers), (len(handlers)+1)*2),
+		filters:  make([]Handler, len(handlers)*2),
 		server:   s,
 	}
 	copy(g.filters, handlers)
@@ -288,6 +288,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	r, e := c.Next()
 
-	c.responseResolve(r, e)
+	c.resolveHandlerResult(r, e)
 	c.release()
 }

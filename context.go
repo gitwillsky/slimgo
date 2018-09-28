@@ -34,13 +34,12 @@ type params []param
 // Context server context
 type Context struct {
 	regPath  string // 注册handler时的地址
-	response http.ResponseWriter
+	response ResponseWriter
 	Request  *http.Request
 	data     *sync.Map
 	params   params // 路由参数
 	handlers []Handler
-	index    int16
-	wrote    bool
+	index    int
 }
 
 var contextPool = sync.Pool{
@@ -52,12 +51,11 @@ var contextPool = sync.Pool{
 // newContext create a context
 func newContext(res http.ResponseWriter, req *http.Request, handlers []Handler) *Context {
 	c := contextPool.Get().(*Context)
-	c.response = res
+	c.response = NewResponseWriter(res, req, true)
 	c.Request = req
 	c.data = &sync.Map{}
-	c.handlers = make([]Handler, len(handlers), 10)
+	c.handlers = make([]Handler, len(handlers)*2)
 	copy(c.handlers, handlers)
-	c.index = -1
 	return c
 }
 
@@ -69,7 +67,7 @@ func (c *Context) release() {
 	c.data = nil
 	c.params = nil
 	c.handlers = nil
-	c.wrote = false // important
+	c.index = 0
 	contextPool.Put(c)
 }
 
@@ -114,13 +112,13 @@ func (c *Context) GetResponseHeader() http.Header {
 
 func (c *Context) WriteHeader(code int) {
 	c.response.WriteHeader(code)
-	c.wrote = true
 }
 
 func (c *Context) Next() (interface{}, error) {
-	c.index++
-	for l := int16(len(c.handlers)); c.index < l; c.index++ {
+	for l := len(c.handlers); c.index < l; c.index++ {
 		handler := c.handlers[c.index]
+
+		// log
 		if GetLevel() == LevelDebug {
 			fileName, file, line := GetFuncInfo(handler)
 			fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
@@ -133,15 +131,17 @@ func (c *Context) Next() (interface{}, error) {
 					c.Request.Method, c.Request.URL.Path)
 			}
 		}
+
 		if result, err := handler(c); result != nil || err != nil {
 			// Abort now!
 			return result, err
 		}
+
 	}
 	return nil, nil
 }
 
-func (c *Context) responseResolve(data interface{}, e error) {
+func (c *Context) resolveHandlerResult(data interface{}, e error) {
 	if data == nil && e == nil {
 		return
 	}
@@ -187,7 +187,7 @@ func (c *Context) responseResolve(data interface{}, e error) {
 		case "map", "array", "slice":
 			writeJson(c.response, data)
 		case "int":
-			if !c.wrote {
+			if !c.response.Written() {
 				c.WriteHeader(data.(int))
 				return
 			}
@@ -375,7 +375,7 @@ func (c *Context) SetCookie(key string, value string, cookiePath string, maxAge 
 
 // Set secure cookie.
 func (c *Context) SetSecureCookie(secret, cookieName, cookieValue,
-	cookiePath string, cookieMaxDay int) error {
+cookiePath string, cookieMaxDay int) error {
 
 	// encoding value to string.
 	s := base64.URLEncoding.EncodeToString([]byte(cookieValue))
