@@ -54,8 +54,7 @@ func newContext(res http.ResponseWriter, req *http.Request, handlers []Handler) 
 	c.response = NewResponseWriter(res)
 	c.Request = req
 	c.data = &sync.Map{}
-	c.handlers = make([]Handler, len(handlers)*2)
-	copy(c.handlers, handlers)
+	c.handlers = append(c.handlers, handlers...)
 	return c
 }
 
@@ -114,7 +113,7 @@ func (c *Context) WriteHeader(code int) {
 	c.response.WriteHeader(code)
 }
 
-func (c *Context) Next() (interface{}, error) {
+func (c *Context) run() (interface{}, error) {
 	for l := len(c.handlers); c.index < l; c.index++ {
 		handler := c.handlers[c.index]
 
@@ -139,6 +138,11 @@ func (c *Context) Next() (interface{}, error) {
 
 	}
 	return nil, nil
+}
+
+func (c *Context) Next() (interface{}, error) {
+	c.index++
+	return c.run()
 }
 
 func (c *Context) resolveHandlerResult(data interface{}, e error) {
@@ -374,7 +378,7 @@ func (c *Context) SetCookie(key string, value string, cookiePath string, maxAge 
 
 // Set secure cookie.
 func (c *Context) SetSecureCookie(secret, cookieName, cookieValue,
-cookiePath string, cookieMaxDay int) error {
+	cookiePath string, cookieMaxDay int) error {
 
 	// encoding value to string.
 	s := base64.URLEncoding.EncodeToString([]byte(cookieValue))

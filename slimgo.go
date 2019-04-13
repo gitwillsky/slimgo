@@ -286,7 +286,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	c := newContext(w, req, s.globalFilters)
 	s.initContext(c)
 
-	r, e := c.Next()
+	r, e := c.run()
 
 	c.resolveHandlerResult(r, e)
 	c.release()
