@@ -1,4 +1,4 @@
-# SlimGo Web Components
+# SlimGo Web Framework
 
 ![slimgo logo](./logo.png)
 
