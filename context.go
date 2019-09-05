@@ -37,7 +37,7 @@ type Context struct {
 	response ResponseWriter
 	Request  *http.Request
 	data     *sync.Map
-	params   params // 路由参数
+	params   *params // 路由参数
 	handlers []Handler
 	index    int
 }
@@ -319,7 +319,7 @@ func (c *Context) ParseJSONRequest(target interface{}) error {
 	if strings.Contains(c.Request.Header.Get("Content-Type"), "application/json") {
 		dec := json.NewDecoder(c.Request.Body)
 		err := dec.Decode(target)
-		c.Request.Body.Close()
+		_ = c.Request.Body.Close()
 		return err
 	}
 
@@ -361,14 +361,14 @@ func (c *Context) GetClientIP() string {
 func (c *Context) SetCookie(key string, value string, cookiePath string, maxAge int) error {
 	var b bytes.Buffer
 
-	fmt.Fprintf(&b, "%s=%s", strings.TrimSpace(key), strings.TrimSpace(value))
+	_, _ = fmt.Fprintf(&b, "%s=%s", strings.TrimSpace(key), strings.TrimSpace(value))
 
 	// set max age.
 	if maxAge >= 0 {
-		fmt.Fprintf(&b, "; Max-Age=%d", maxAge)
+		_, _ = fmt.Fprintf(&b, "; Max-Age=%d", maxAge)
 	}
 	// set path.
-	fmt.Fprintf(&b, "; Path=%s", strings.TrimSpace(cookiePath))
+	_, _ = fmt.Fprintf(&b, "; Path=%s", strings.TrimSpace(cookiePath))
 
 	// output to header.
 	c.response.Header().Add("Set-Cookie", b.String())
@@ -386,12 +386,12 @@ func (c *Context) SetSecureCookie(secret, cookieName, cookieValue,
 	timestamp := strconv.FormatInt(time.Now().UnixNano(), 10)
 	// new hmac to crypto secret.
 	h := hmac.New(sha1.New, []byte(secret))
-	fmt.Fprintf(h, "%s%s", s, timestamp)
+	_, _ = fmt.Fprintf(h, "%s%s", s, timestamp)
 	sig := fmt.Sprintf("%02x", h.Sum(nil))
 	// v|timestamp|sig
 	cookie := strings.Join([]string{s, timestamp, sig}, "|")
 
-	c.SetCookie(cookieName, cookie, cookiePath, cookieMaxDay)
+	_ = c.SetCookie(cookieName, cookie, cookiePath, cookieMaxDay)
 
 	return nil
 }
@@ -416,7 +416,7 @@ func (c *Context) GetSecureCookie(secret, key string) string {
 
 	// judge secret correct.
 	h := hmac.New(sha1.New, []byte(secret))
-	fmt.Fprintf(h, "%s%s", s, timestamp)
+	_, _ = fmt.Fprintf(h, "%s%s", s, timestamp)
 
 	if fmt.Sprintf("%02x", h.Sum(nil)) != sig {
 		return ""

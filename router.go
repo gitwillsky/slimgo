@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 )
 
 // Router server router
 type Router struct {
+	// pool to recycle Param slices
+	psPool sync.Pool
+
+	// max number of params any of the path contains
+	psMaxLen int
+
 	trees map[string]*node
 
 	// Enables automatic redirection if the current route can't be matched but a
@@ -28,6 +35,26 @@ type Router struct {
 	// For example /FOO and /..//Foo could be redirected to /foo.
 	// RedirectTrailingSlash is independent of this option.
 	RedirectFixedPath bool
+}
+
+func (r *Router) psGet() *params {
+	if ps := r.psPool.Get(); ps != nil {
+		psp := ps.(*params)
+		if cap(*psp) >= r.psMaxLen {
+			*psp = (*psp)[0:0] // reset slice
+			return psp
+		}
+	}
+
+	// Allocate new slice if none is available
+	ps := make(params, 0, r.psMaxLen)
+	return &ps
+}
+
+func (r *Router) psRecycle(ps *params) {
+	if ps != nil {
+		r.psPool.Put(ps)
+	}
 }
 
 // Register registers a new request handle with the given path and method.
@@ -57,6 +84,11 @@ func (r *Router) Register(method, urlPath string, handlers ...Handler) {
 	if root == nil {
 		root = new(node)
 		r.trees[method] = root
+	}
+
+	// Update psMaxLen
+	if pc := countParams(urlPath); pc > r.psMaxLen {
+		r.psMaxLen = pc
 	}
 
 	root.addRoute(urlPath, handlers)

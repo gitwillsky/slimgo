@@ -16,18 +16,16 @@ func min(a, b int) int {
 	return b
 }
 
-func countParams(path string) uint8 {
-	var n uint
+func countParams(path string) int {
+	var n int
 	for i := 0; i < len(path); i++ {
 		if path[i] != ':' && path[i] != '*' {
 			continue
 		}
 		n++
 	}
-	if n >= 255 {
-		return 255
-	}
-	return uint8(n)
+
+	return n
 }
 
 type nodeType uint8
@@ -144,7 +142,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 
 					// Check if the wildcard matches
 					if len(path) >= len(n.path) && n.path == path[:len(n.path)] &&
-						// Check for longer wildcard, e.g. :name and :names
+					// Check for longer wildcard, e.g. :name and :names
 						(len(n.path) >= len(path) || path[len(n.path)] == '/') {
 						continue walk
 					} else {
@@ -331,7 +329,7 @@ func (n *node) insertChild(numParams uint8, path, fullPath string, handlers []Ha
 // If no handle can be found, a TSR (trailing slash redirect) recommendation is
 // made if a handle exists with an extra (without the) trailing slash for the
 // given path.
-func (n *node) getValue(path string) (regPath string, handlers []Handler, p params, tsr bool) {
+func (n *node) getValue(path string, ps *params) (regPath string, handlers []Handler, tsr bool) {
 walk: // outer loop for walking the tree
 	for {
 		if len(path) > len(n.path) {
@@ -368,14 +366,12 @@ walk: // outer loop for walking the tree
 					}
 
 					// save param value
-					if p == nil {
-						// lazy allocation
-						p = make(params, 0, n.maxParams)
+					if ps != nil {
+						i := len(*ps)
+						*ps = (*ps)[:i+1] // expand slice within preallocated capacity
+						(*ps)[i].key = n.path[1:]
+						(*ps)[i].value = path[:end]
 					}
-					i := len(p)
-					p = p[:i+1] // expand slice within preallocated capacity
-					p[i].key = n.path[1:]
-					p[i].value = path[:end]
 
 					// we need to go deeper!
 					if end < len(path) {
@@ -404,14 +400,12 @@ walk: // outer loop for walking the tree
 
 				case catchAllType:
 					// save param value
-					if p == nil {
-						// lazy allocation
-						p = make(params, 0, n.maxParams)
+					if ps != nil {
+						i := len(*ps)
+						*ps = (*ps)[:i+1] // expand slice within preallocated capacity
+						(*ps)[i].key = n.path[2:]
+						(*ps)[i].value = path
 					}
-					i := len(p)
-					p = p[:i+1] // expand slice within preallocated capacity
-					p[i].key = n.path[2:]
-					p[i].value = path
 
 					regPath = n.regPath
 					handlers = n.value

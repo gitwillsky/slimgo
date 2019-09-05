@@ -6,7 +6,7 @@
 //	Version: 1.0
 //
 //  Introduction：
-//	SlimGo log implementator. provide file log function.
+//	SlimGo log implementations. provide file log function.
 //
 
 package slimgo
@@ -64,11 +64,11 @@ func (f *fileLog) Message(message string, level LogLevel) error {
 
 // imp Flush method
 func (f *fileLog) Flush() {
-	f.file.Sync()
+	_ = f.file.Sync()
 }
 
 // imp Close method
 func (f *fileLog) Close() {
 	f.Flush()
-	f.file.Close()
+	_ = f.file.Close()
 }

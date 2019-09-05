@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const Version = "slimgo1.0.0"
+const Version = "slimgo v1.0.0"
 
 // Server http server handler
 type Server struct {
@@ -208,10 +208,11 @@ func (s *Server) initContext(ctx *Context) {
 	}
 
 	// get router handle
-	regPath, handlers, params, tsr := root.getValue(urlPath)
+	ps := s.router.psGet()
+	regPath, handlers, tsr := root.getValue(urlPath, ps)
 
 	if handlers != nil {
-		ctx.params = params
+		ctx.params = ps
 		ctx.regPath = regPath
 		ctx.AddHandlers(handlers...)
 		return
@@ -289,5 +290,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r, e := c.run()
 
 	c.resolveHandlerResult(r, e)
+
+	s.router.psRecycle(c.params)
 	c.release()
 }
