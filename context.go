@@ -81,11 +81,14 @@ func (c *Context) PutValue(key string, value interface{}) {
 
 // GetParam get router :paramname param value
 func (c *Context) GetParam(key string) string {
-	for _, v := range c.params {
-		if v.key == key {
-			return v.value
+	if c.params != nil {
+		for _, v := range *c.params {
+			if v.key == key {
+				return v.value
+			}
 		}
 	}
+
 	return ""
 }
 

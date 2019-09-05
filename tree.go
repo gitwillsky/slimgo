@@ -42,7 +42,7 @@ type node struct {
 	regPath   string
 	wildChild bool
 	nType     nodeType
-	maxParams uint8
+	maxParams int
 	indices   string
 	children  []*node
 	value     []Handler
@@ -208,7 +208,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 	}
 }
 
-func (n *node) insertChild(numParams uint8, path, fullPath string, handlers []Handler) {
+func (n *node) insertChild(numParams int, path, fullPath string, handlers []Handler) {
 	var offset int // already handled bytes of the path
 	regPath := fullPath
 
