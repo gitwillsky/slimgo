@@ -10,7 +10,7 @@ type ResponseWriter interface {
 }
 
 // NewResponseWriter creates a ResponseWriter that wraps an http.ResponseWriter
-func NewResponseWriter(res http.ResponseWriter) ResponseWriter {
+func newResponseWriter(res http.ResponseWriter) ResponseWriter {
 	return &responseWriter{
 		res:  res,
 		code: 0,

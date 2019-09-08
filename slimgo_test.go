@@ -8,29 +8,26 @@ import (
 
 func Test_Server(t *testing.T) {
 	s := New()
-	s.AddServerFilter(func(c *Context) (interface{}, error) {
+	s.Use(func(c Context) {
 		start := time.Now()
-		r, e := c.Next()
-		fmt.Printf("use time : %.3f s\n", time.Since(start).Seconds())
-		return r, e
-	})
-
-	s.GET("/post/:id", func(c *Context) (interface{}, error) {
-		id := c.GetParam("id")
-		c.WriteHeader(200)
-		return id, nil
-	})
-
-	s.Root("/api", func(c *Context) (interface{}, error) {
 		c.Next()
-		return nil, nil
-	}).
-		GET("/user/:id", func(c *Context) (interface{}, error) {
-			id := c.GetParam("id")
-			time.Sleep(time.Second * 3)
-			c.WriteHeader(200)
-			return id, nil
-		})
+		fmt.Printf("use time : %.3f s\n", time.Since(start).Seconds())
+	})
 
-	s.Start(":8080")
+	s.GET("/post/:id", func(c Context) {
+		id := c.Param("id")
+		c.String(200, id)
+	})
+
+	s.Root("/api", func(c Context) {
+		c.Next()
+	}).GET("/user/:id", func(c Context) {
+		id := c.Param("id")
+		time.Sleep(time.Second * 3)
+		c.String(200, id)
+	})
+
+	if err := s.Start(":8080"); err != nil {
+		t.Error(err)
+	}
 }

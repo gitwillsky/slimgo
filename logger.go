@@ -5,67 +5,30 @@
 //	Author email: hdu_willsky@foxmail.com
 //	Version: 1.0
 //
-//  Introduction：
-//	SlimGo App log package. provide App log function.
-//
-//	Usage:
-//
-//	import "github.com/SlimGo/core/log"
-//
-//	log := log.New(10)
-//
-//	log.Alert("Alert info: %s",alert) 			// Alert
-//	log.Error("error")	//error
-
 package slimgo
 
-import (
-	"bytes"
-)
+import "log"
 
-type LogLevel uint8
-
-// RFC5424 log message levels.
-const (
-	LevelEmergency LogLevel = iota
-	LevelAlert
-	LevelCritical
-	LevelError
-	LevelWarning
-	LevelNotice
-	LevelInformational
-	LevelDebug
-)
-
-// Logger interface
-type ILogger interface {
-	Init(config string) error
-	Message(message string, level LogLevel) error
-	Flush()
-	Close()
+type Logger interface {
+	Debugf(format string, fields ...interface{})
+	Infof(format string, fields ...interface{})
+	Errorf(format string, fields ...interface{})
 }
 
-var implements = make(map[string]ILogger, 2)
-
-// Register log interface implementator
-func Register(name string, impl ILogger) {
-	if impl == nil {
-		panic("log implement Object is nil")
-	}
-	if _, ok := implements[name]; ok {
-		panic("log implement Object exists")
-	}
-
-	implements[name] = impl
+type logger struct {
+	debug bool
 }
 
-func makeFormats(a []interface{}) string {
-	buf := &bytes.Buffer{}
-	for i := 0; i < len(a); i++ {
-		if i > 0 {
-			buf.WriteByte(' ')
-		}
-		buf.WriteString("%v")
+func (l logger) Debugf(format string, fields ...interface{}) {
+	if l.debug {
+		log.Printf("[DEBUG] "+format, fields...)
 	}
-	return buf.String()
+}
+
+func (logger) Infof(format string, fields ...interface{}) {
+	log.Printf("[INFO] "+format, fields...)
+}
+
+func (logger) Errorf(format string, fields ...interface{}) {
+	log.Printf("[ERROR] "+format, fields...)
 }

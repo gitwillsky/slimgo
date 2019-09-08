@@ -12,9 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"reflect"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,60 +25,95 @@ type param struct {
 	value string
 }
 
-type Handler func(context *Context) (interface{}, error)
+type Handler func(context Context)
 
 type params []param
 
-// Context server context
-type Context struct {
+type Context interface {
+	Data(key string) (value interface{}, ok bool)
+	PutData(key string, value interface{})
+	Param(key string) string
+	RegRelativePath() string
+	Request() *http.Request
+	ResponseWriter() ResponseWriter
+	ResponseHeader() http.Header
+	WriteResponseHeader(code int)
+	JSON(statusCode int, data interface{})
+	String(statusCode int, data string)
+	BindJSON(target interface{}, validators ...func(target interface{}) error) error
+	SaveFiles(folder string, maxLen int, allowExt string) ([]string, error)
+	SetCookie(key string, value string, cookiePath string, maxAge int) error
+	SetSecureCookie(secret, cookieName, cookieValue, cookiePath string, cookieMaxDay int) error
+	Cookie(key string) string
+	SecureCookie(secret, key string) string
+	ClientIP() string
+	Next()
+	Abort()
+}
+
+// context server context
+type context struct {
 	regPath  string // 注册handler时的地址
 	response ResponseWriter
-	Request  *http.Request
+	request  *http.Request
 	data     *sync.Map
 	params   *params // 路由参数
 	handlers []Handler
 	index    int
+	server   *Server
 }
 
 var contextPool = sync.Pool{
 	New: func() interface{} {
-		return &Context{}
+		return &context{}
 	},
 }
 
 // newContext create a context
-func newContext(res http.ResponseWriter, req *http.Request, handlers []Handler) *Context {
-	c := contextPool.Get().(*Context)
-	c.response = NewResponseWriter(res)
-	c.Request = req
-	c.data = &sync.Map{}
-	c.handlers = append(c.handlers, handlers...)
+func newContext() *context {
+	c := contextPool.Get().(*context)
 	return c
 }
 
+func (c *context) init(s *Server, res http.ResponseWriter, req *http.Request, middleware ...Handler) {
+	c.server = s
+	c.response = newResponseWriter(res)
+	c.request = req
+	c.data = &sync.Map{}
+	c.handlers = append(c.handlers, middleware...)
+
+	// find router handler
+	handlers, regPath, ps := c.server.router.GetHandlers(req)
+	c.regPath = regPath
+	c.params = ps
+	c.handlers = append(c.handlers, handlers...)
+}
+
 // release release context
-func (c *Context) release() {
+func (c *context) recycle() {
+	c.server.router.psRecycle(c.params)
+
 	c.regPath = ""
 	c.response = nil
-	c.Request = nil
+	c.request = nil
 	c.data = nil
 	c.params = nil
-	c.handlers = nil
+	c.handlers = c.handlers[:0]
 	c.index = 0
 	contextPool.Put(c)
 }
 
-// GetValue get data value
-func (c *Context) GetValue(key string) (value interface{}, ok bool) {
+// Data get data value
+func (c *context) Data(key string) (value interface{}, ok bool) {
 	return c.data.Load(key)
 }
 
-func (c *Context) PutValue(key string, value interface{}) {
+func (c *context) PutData(key string, value interface{}) {
 	c.data.Store(key, value)
 }
 
-// GetParam get router :paramname param value
-func (c *Context) GetParam(key string) string {
+// Param get router :paramname param value
+func (c *context) Param(key string) string {
 	if c.params != nil {
 		for _, v := range *c.params {
 			if v.key == key {
@@ -92,162 +125,77 @@ func (c *Context) GetParam(key string) string {
 	return ""
 }
 
-func (c *Context) GetRegURLPath() string {
+func (c *context) RegRelativePath() string {
 	return c.regPath
 }
 
-func (c *Context) GetResponseWriter() http.ResponseWriter {
+func (c *context) ResponseWriter() ResponseWriter {
 	return c.response
 }
 
-func (c *Context) AddHandlers(handlers ...Handler) {
-	c.handlers = append(c.handlers, handlers...)
+func (c *context) Request() *http.Request {
+	return c.request
 }
 
-func (c *Context) GetAllHandlers() []Handler {
-	return c.handlers
-}
-
-func (c *Context) GetResponseHeader() http.Header {
+func (c *context) ResponseHeader() http.Header {
 	return c.response.Header()
 }
 
-func (c *Context) WriteHeader(code int) {
+func (c *context) WriteResponseHeader(code int) {
 	c.response.WriteHeader(code)
 }
 
-func (c *Context) run() (interface{}, error) {
+func (c *context) run() {
 	for l := len(c.handlers); c.index < l; c.index++ {
 		handler := c.handlers[c.index]
 
-		// log
-		if GetLevel() == LevelDebug {
+		if c.server.mode == Debug {
 			fileName, file, line := GetFuncInfo(handler)
 			fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 			_, file = path.Split(file)
-			if c.index < l-1 {
-				Debugf("execute filter {%s} for request: [%s] %s", fmt.Sprintf("%s[%d]:%s", file, line, fileName),
-					c.Request.Method, c.Request.URL.Path)
-			} else {
-				Debugf("execute handler {%s} for request: [%s] %s", fmt.Sprintf("%s[%d]:%s", file, line, fileName),
-					c.Request.Method, c.Request.URL.Path)
-			}
+			c.server.logger.Debugf("%s %s {%s}",
+				c.request.Method, c.request.URL.Path,
+				fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 		}
 
-		if result, err := handler(c); result != nil || err != nil {
-			// Abort now!
-			return result, err
+		handler(c)
+		if c.response.Written() {
+			return
 		}
-
 	}
-	return nil, nil
 }
 
-func (c *Context) Next() (interface{}, error) {
+func (c *context) Next() {
 	c.index++
-	return c.run()
+	c.run()
 }
 
-func (c *Context) resolveHandlerResult(data interface{}, e error) {
-	if data == nil && e == nil {
+func (c *context) Abort() {
+	c.index = len(c.handlers)
+}
+
+func (c *context) JSON(statusCode int, data interface{}) {
+	c.response.Header().Set("Content-Type", "application/json;charset=utf-8")
+	c.WriteResponseHeader(statusCode)
+
+	if err := json.NewEncoder(c.response).Encode(data); err != nil {
+		http.Error(c.response, err.Error(), 500)
 		return
 	}
-
-	if e != nil {
-		code := 500
-		contentType := "text/plain; charset=utf-8"
-		if err, ok := e.(*handlerError); ok {
-			contentType = "application/json;charset=utf-8"
-			code = err.StatusCode
-		}
-		c.response.Header().Set("Content-Type", contentType)
-		c.response.WriteHeader(code)
-		fmt.Fprintf(c.response, e.Error())
-		return
-	}
-
-	if data != nil {
-		reflectValue := reflect.ValueOf(data)
-	WALK:
-		typeKind := reflectValue.Type().Kind().String()
-		typeName := reflectValue.Type().String()
-		switch typeKind {
-		case "string":
-			fmt.Fprint(c.response, data)
-		case "ptr":
-			reflectValue = reflectValue.Elem()
-			goto WALK
-		case "struct":
-			// file
-			if typeName == "os.File" {
-				file := data.(*os.File)
-				d, err := file.Stat()
-				if err != nil {
-					http.Error(c.response, err.Error(), 500)
-					return
-				}
-				http.ServeContent(c.response, c.Request, file.Name(), d.ModTime(), file)
-				return
-			}
-			// convert struct to json and output response
-			writeJson(c.response, data)
-		case "map", "array", "slice":
-			writeJson(c.response, data)
-		case "int":
-			if !c.response.Written() {
-				c.WriteHeader(data.(int))
-				return
-			}
-		default:
-			http.Error(c.response, "No resource resolver for "+typeName+", please add resouce filter to handle this", 500)
-		}
-	}
 }
 
-type handlerError struct {
-	Date       string   `json:"time"`
-	StatusCode int      `json:"code"`
-	Messages   []string `json:"messages"`
-	Debug      string   `json:"debug"`
+func (c *context) String(statusCode int, data string) {
+	c.response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.response.Header().Set("X-Content-Type-Options", "nosniff")
+	c.response.WriteHeader(statusCode)
+	_, _ = fmt.Fprintln(c.response, data)
 }
 
-func (c *Context) NewError(statusCode int, errs ...error) error {
-	result := &handlerError{
-		StatusCode: statusCode,
-	}
-	for _, e := range errs {
-		result.Messages = append(result.Messages, e.Error())
-	}
-
-	result.Date = time.Now().Format("2006-01-02 15:04:05")
-	if GetLevel() == LevelDebug {
-		_, file, line, _ := runtime.Caller(1)
-		result.Debug = fmt.Sprintf("%s [%d]", file, line)
-	}
-
-	return result
-}
-
-func (e *handlerError) Error() string {
-	data, _ := json.Marshal(e)
-	return BytesToString(&data)
-}
-
-func writeJson(res http.ResponseWriter, data interface{}) {
-	res.Header().Set("Content-Type", "application/json;charset=utf-8")
-	dat, err := json.Marshal(data)
-	if err != nil {
-		http.Error(res, err.Error(), 500)
-		return
-	}
-	fmt.Fprint(res, BytesToString(&dat))
-}
-
-// 文件上传
+// 文件接收
 // floder 文件所要保存的目录
 // maxLen 文件最大长度
 // 允许的扩展名[正则表达式]，例如：(.png|.jpeg|.jpg|.gif)
-func (c *Context) UploadFiles(folder string, maxLen int, allowExt string) ([]string, error) {
+func (c *context) SaveFiles(folder string, maxLen int, allowExt string) ([]string, error) {
 	result := make([]string, 0)
 	// 允许的扩展名正则匹配
 	regExt, err := regexp.Compile(allowExt)
@@ -256,13 +204,13 @@ func (c *Context) UploadFiles(folder string, maxLen int, allowExt string) ([]str
 	}
 
 	// 文件长度限制
-	length, err := strconv.Atoi(c.Request.Header.Get("Content-Length"))
+	length, err := strconv.Atoi(c.request.Header.Get("Content-Length"))
 	if err != nil || (length > maxLen) {
 		return nil, errors.New("Upload file is too big!")
 	}
 
 	// get the multipart reader for the request.
-	reader, err := c.Request.MultipartReader()
+	reader, err := c.request.MultipartReader()
 	if err != nil {
 		return nil, err
 	}
@@ -273,9 +221,13 @@ func (c *Context) UploadFiles(folder string, maxLen int, allowExt string) ([]str
 	for {
 		// 通过boundary，获取每个文件数据。
 		part, err := reader.NextPart()
-		if err == io.EOF {
-			break
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
 		}
+
 		// 检查文件名
 		fileName := part.FileName()
 		if fileName == "" {
@@ -292,13 +244,13 @@ func (c *Context) UploadFiles(folder string, maxLen int, allowExt string) ([]str
 		fullFilePath = path.Clean(folder + subFilePath)
 
 		// 新建文件夹,0777
-		os.MkdirAll(path.Dir(fullFilePath), os.ModePerm)
+		_ = os.MkdirAll(path.Dir(fullFilePath), os.ModePerm)
 		// 建立目标文件
 		dst, err := os.Create(fullFilePath)
-		defer dst.Close()
 		if err != nil {
 			return nil, err
 		}
+		defer dst.Close()
 
 		// 拷贝数据流到文件
 		if _, err = io.Copy(dst, part); err != nil {
@@ -317,16 +269,27 @@ func (c *Context) UploadFiles(folder string, maxLen int, allowExt string) ([]str
 	return result, nil
 }
 
-// ParseJSONRequest parse json request
-func (c *Context) ParseJSONRequest(target interface{}) error {
-	if strings.Contains(c.Request.Header.Get("Content-Type"), "application/json") {
-		dec := json.NewDecoder(c.Request.Body)
-		err := dec.Decode(target)
-		_ = c.Request.Body.Close()
+// BindJSON parse json request
+func (c *context) BindJSON(target interface{}, validators ...func(target interface{}) error) error {
+	contentType := c.request.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		return errors.New("invalid Content-Type : " + contentType)
+	}
+
+	dec := json.NewDecoder(c.request.Body)
+	defer c.request.Body.Close()
+
+	if err := dec.Decode(target); err != nil {
 		return err
 	}
 
-	return errors.New("Content-Type isn't application/json")
+	for _, validator := range validators {
+		if err := validator(target); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Proxy returns proxy client ips slice.
@@ -338,15 +301,15 @@ func proxy(r *http.Request) string {
 	return ""
 }
 
-// GetClientIP return client IP.
+// ClientIP() return client IP.
 // if in proxy, return first proxy id;
 // if error ,return 127.0.0.1;
-func (c *Context) GetClientIP() string {
-	clientIP := strings.TrimSpace(c.Request.Header.Get("X-Real-Ip"))
+func (c *context) ClientIP() string {
+	clientIP := strings.TrimSpace(c.request.Header.Get("X-Real-Ip"))
 	if len(clientIP) > 0 {
 		return clientIP
 	}
-	clientIP = c.Request.Header.Get("X-Forwarded-For")
+	clientIP = c.request.Header.Get("X-Forwarded-For")
 	if index := strings.IndexByte(clientIP, ','); index >= 0 {
 		clientIP = clientIP[0:index]
 	}
@@ -354,14 +317,14 @@ func (c *Context) GetClientIP() string {
 	if len(clientIP) > 0 {
 		return clientIP
 	}
-	if ip, _, err := net.SplitHostPort(strings.TrimSpace(c.Request.RemoteAddr)); err == nil {
+	if ip, _, err := net.SplitHostPort(strings.TrimSpace(c.request.RemoteAddr)); err == nil {
 		return ip
 	}
 	return "127.0.0.1"
 }
 
 // Set cookie.
-func (c *Context) SetCookie(key string, value string, cookiePath string, maxAge int) error {
+func (c *context) SetCookie(key string, value string, cookiePath string, maxAge int) error {
 	var b bytes.Buffer
 
 	_, _ = fmt.Fprintf(&b, "%s=%s", strings.TrimSpace(key), strings.TrimSpace(value))
@@ -380,9 +343,7 @@ func (c *Context) SetCookie(key string, value string, cookiePath string, maxAge 
 }
 
 // Set secure cookie.
-func (c *Context) SetSecureCookie(secret, cookieName, cookieValue,
-	cookiePath string, cookieMaxDay int) error {
-
+func (c *context) SetSecureCookie(secret, cookieName, cookieValue, cookiePath string, cookieMaxDay int) error {
 	// encoding value to string.
 	s := base64.URLEncoding.EncodeToString([]byte(cookieValue))
 	// get time stamp.
@@ -400,8 +361,8 @@ func (c *Context) SetSecureCookie(secret, cookieName, cookieValue,
 }
 
 // Get secure cookie.
-func (c *Context) GetSecureCookie(secret, key string) string {
-	cookie := c.GetCookie(key)
+func (c *context) SecureCookie(secret, key string) string {
+	cookie := c.Cookie(key)
 
 	if cookie == "" {
 		return ""
@@ -430,8 +391,8 @@ func (c *Context) GetSecureCookie(secret, key string) string {
 }
 
 // Get cookie
-func (c *Context) GetCookie(key string) string {
-	cookie, err := c.Request.Cookie(key)
+func (c *context) Cookie(key string) string {
+	cookie, err := c.request.Cookie(key)
 	if err != nil {
 		return ""
 	}

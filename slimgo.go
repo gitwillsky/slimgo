@@ -7,259 +7,226 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"time"
+	"sync"
 )
 
 const Version = "slimgo v1.0.0"
+const Release = "release"
+const Debug = "debug"
 
 // Server http server handler
 type Server struct {
-	globalFilters []Handler
-	router        *Router
-	// NotFound Configurable http.Handler which is called when no matching route is
-	// found. If it is not set, http.NotFound is used.
-	NotFound Handler
-	// MethodNotAllowed Configurable http.Handler which is called when a request
-	// cannot be routed and HandleMethodNotAllowed is true.
-	// If it is not set, http.Error with http.StatusMethodNotAllowed is used.
-	// The "Allow" header with allowed request methods is set before the handler
-	// is called.
-	MethodNotAllowed Handler
-	servers          []*http.Server
-	startTime        time.Time
+	router     *Router
+	mode       string
+	logger     Logger
+	middleware []Handler
+	lock       sync.Locker
 }
 
 // New create new server handler
 // so we can use http.ListenAndServe()
 func New() *Server {
 	s := &Server{
-		globalFilters: make([]Handler, 0),
 		router: &Router{
 			RedirectTrailingSlash: true,
 			RedirectFixedPath:     true,
+			NotFound:              defaultNotFoundHandler,
+			MethodNotAllowed:      defaultMethodNotAllowHandler,
 		},
-		NotFound:         defaultNotFoundHandler,
-		MethodNotAllowed: defaultMethodNotAllowHandler,
-		servers:          make([]*http.Server, 0),
-		startTime:        time.Now(),
+		logger: &logger{
+			debug: true,
+		},
+		mode: Debug,
 	}
 
-	if GetLevel() >= LevelInformational {
-		fmt.Printf(banner, Version, runtime.Version())
-	}
+	fmt.Printf(banner, Version, runtime.Version())
 	return s
 }
 
+func (s *Server) SetMode(mode string) {
+	s.mode = mode
+	s.logger = &logger{
+		debug: mode == Debug,
+	}
+}
+
+func (s *Server) SetLogger(l Logger) {
+	s.logger = l
+}
+
 func (s *Server) Start(addr string) error {
-	Infof("web server listen on port %s (http)", addr)
-	server := &http.Server{Addr: addr, Handler: s}
-	s.servers = append(s.servers, server)
-	Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
-	return server.ListenAndServe()
+	if err := http.ListenAndServe(addr, s); err != nil {
+		return err
+	}
+	s.logger.Infof("web server listen on port %s (http)", addr)
+	return nil
 }
 
 func (s *Server) StartTLS(addr, certFile, keyFile string) error {
-	Infof("web server listen on port %s (https)", addr)
-	server := &http.Server{Addr: addr, Handler: s}
-	s.servers = append(s.servers, server)
-	Infof("started slimgo web application in %f seconds", time.Since(s.startTime).Seconds())
-	return server.ListenAndServeTLS(certFile, keyFile)
+	if err := http.ListenAndServeTLS(addr, certFile, keyFile, s); err != nil {
+		return err
+	}
+	s.logger.Infof("web server listen on port %s (https)", addr)
+
+	return nil
 }
 
-// TODO graceFul shutdown
-//func (s *Server) Shutdown() error {
-//	for _, server := range s.servers {
-//		server.Shutdown()
-//	}
-//}
-
-// AddFilter 注册全局过滤器
-func (s *Server) AddServerFilter(filters ...Handler) {
-	for _, filter := range filters {
-		s.globalFilters = append(s.globalFilters, filter)
-		if GetLevel() >= LevelInformational {
-			for _, filter := range filters {
-				fileName, file, line := GetFuncInfo(filter)
-				fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
-				_, file = path.Split(file)
-				Infof("mapped global filter: {%s} to: /*", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
-			}
+func (s *Server) Use(middleware ...Handler) {
+	for _, filter := range middleware {
+		s.middleware = append(s.middleware, filter)
+		if s.mode != Release {
+			fileName, file, line := GetFuncInfo(filter)
+			fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
+			_, file = path.Split(file)
+			s.logger.Debugf("use middleware: {%s} ", fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 		}
 	}
 }
 
+// Register registers a new request handle with the given path and method.
+//
+// For GET, POST, PUT, PATCH and DELETE requests the respective shortcut
+// functions can be used.
+//
+// This function is intended for bulk loading and to allow the usage of less
+// frequently used, non-standardized or custom methods (e.g. for internal
+// communication with a proxy).
+func (s *Server) Register(method string, relativePath string, handlers ...Handler) {
+	if relativePath[0] != '/' {
+		panic("path must begin with '/' in path '" + relativePath + "'")
+	}
+
+	if handlers == nil || len(handlers) == 0 {
+		panic(fmt.Errorf("register [%s] %s failed: handler can not be null", method, relativePath))
+	}
+
+	relativePath = CleanURLPath(relativePath)
+	// Update psMaxLen
+	if pc := countParams(relativePath); pc > s.router.psMaxLen {
+		s.router.psMaxLen = pc
+	}
+
+	if s.router.trees == nil {
+		s.router.trees = make(map[string]*node)
+	}
+
+	root := s.router.trees[method]
+	if root == nil {
+		root = new(node)
+		s.router.trees[method] = root
+	}
+
+	root.addRoute(relativePath, handlers)
+
+	if s.mode == Debug {
+		fileName, file, line := GetFuncInfo(handlers[len(handlers)-1])
+		fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
+		_, file = path.Split(file)
+		s.logger.Debugf("mapped handler: %s %s {%s}",
+			method, relativePath,
+			fmt.Sprintf("%s[%d]:%s", file, line, fileName))
+	}
+}
+
 // GET is a shortcut for router.Register("GET", path, handler)
-func (s *Server) GET(urlPath string, handler Handler) {
-	s.router.Register("GET", urlPath, handler)
+func (s *Server) GET(relativePath string, handlers ...Handler) {
+	s.Register("GET", relativePath, handlers...)
 }
 
 // HEAD is a shortcut for router.Register("HEAD", path, handler)
-func (s *Server) HEAD(urlPath string, handler Handler) {
-	s.router.Register("HEAD", urlPath, handler)
+func (s *Server) HEAD(relativePath string, handlers ...Handler) {
+	s.Register("HEAD", relativePath, handlers...)
 }
 
 // OPTIONS is a shortcut for router.Register("OPTIONS", path, handler)
-func (s *Server) OPTIONS(urlPath string, handler Handler) {
-	s.router.Register("OPTIONS", urlPath, handler)
+func (s *Server) OPTIONS(relativePath string, handlers ...Handler) {
+	s.Register("OPTIONS", relativePath, handlers...)
 }
 
 // POST is a shortcut for router.Register("POST", path, handler)
-func (s *Server) POST(urlPath string, handler Handler) {
-	s.router.Register("POST", urlPath, handler)
+func (s *Server) POST(relativePath string, handlers ...Handler) {
+	s.Register("POST", relativePath, handlers...)
 }
 
 // PUT is a shortcut for router.Register("PUT", path, handler)
-func (s *Server) PUT(urlPath string, handler Handler) {
-	s.router.Register("PUT", urlPath, handler)
+func (s *Server) PUT(relativePath string, handlers ...Handler) {
+	s.Register("PUT", relativePath, handlers...)
 }
 
 // PATCH is a shortcut for router.Register("PATCH", path, handler)
-func (s *Server) PATCH(urlPath string, handler Handler) {
-	s.router.Register("PATCH", urlPath, handler)
+func (s *Server) PATCH(relativePath string, handlers ...Handler) {
+	s.Register("PATCH", relativePath, handlers...)
 }
 
 // DELETE is a shortcut for router.Register("DELETE", path, handler)
-func (s *Server) DELETE(urlPath string, handler Handler) {
-	s.router.Register("DELETE", urlPath, handler)
+func (s *Server) DELETE(relativePath string, handlers ...Handler) {
+	s.Register("DELETE", relativePath, handlers...)
 }
 
 // 路由组
 type groupRoutes struct {
 	rootPath string
 	filters  []Handler
-	server   *Server
+	*Server
 }
 
-func (s *Server) Root(rootPath string, handlers ...Handler) *groupRoutes {
-	g := &groupRoutes{
+func (s *Server) Root(rootPath string, filters ...Handler) *groupRoutes {
+	return &groupRoutes{
 		rootPath: rootPath,
-		filters:  make([]Handler, len(handlers)),
-		server:   s,
+		filters:  filters,
+		Server:   s,
 	}
-	copy(g.filters, handlers)
-	return g
 }
 
-func (g *groupRoutes) AddRouterFilter(handlers ...Handler) *groupRoutes {
-	g.filters = append(g.filters, handlers...)
+func (g *groupRoutes) AddRouterFilter(filters ...Handler) *groupRoutes {
+	g.filters = append(g.filters, filters...)
 	return g
 }
 
 func (g *groupRoutes) ClearRouterFilters() *groupRoutes {
-	g.filters = make([]Handler, 0)
+	g.filters = g.filters[:0]
 	return g
 }
 
-func (g *groupRoutes) combineHandlers(handler Handler) []Handler {
-	result := make([]Handler, len(g.filters)+1)
+func (g *groupRoutes) combineHandlers(handlers ...Handler) []Handler {
+	result := make([]Handler, len(g.filters)+len(handlers))
 	copy(result, g.filters)
-	result[len(g.filters)] = handler
+	copy(result[len(g.filters):], handlers)
 	return result
 }
 
-func (g *groupRoutes) GET(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("GET", urlPath, g.combineHandlers(handler)...)
+func (g *groupRoutes) reg(method string, relativePath string, handlers ...Handler) *groupRoutes {
+	relativePath = fmt.Sprintf("/%s/%s", g.rootPath, relativePath)
+	g.Register(method, relativePath, g.combineHandlers(handlers...)...)
 	return g
 }
 
-func (g *groupRoutes) HEAD(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("HEAD", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) GET(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("GET", relativePath, handlers...)
 }
 
-func (g *groupRoutes) OPTIONS(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("OPTIONS", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) HEAD(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("HEAD", relativePath, handlers...)
 }
 
-func (g *groupRoutes) POST(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("POST", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) OPTIONS(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("OPTIONS", relativePath, handlers...)
 }
 
-func (g *groupRoutes) PUT(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("PUT", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) POST(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("POST", relativePath, handlers...)
 }
 
-func (g *groupRoutes) PATCH(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("PATCH", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) PUT(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("PUT", relativePath, handlers...)
 }
 
-func (g *groupRoutes) DELETE(urlPath string, handler Handler) *groupRoutes {
-	urlPath = fmt.Sprintf("/%s/%s", g.rootPath, urlPath)
-	g.server.router.Register("DELETE", urlPath, g.combineHandlers(handler)...)
-	return g
+func (g *groupRoutes) PATCH(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("PATCH", relativePath, handlers...)
 }
 
-func (s *Server) initContext(ctx *Context) {
-	urlPath := ctx.Request.URL.Path
-	root, ok := s.router.trees[ctx.Request.Method]
-	if !ok {
-		ctx.AddHandlers(s.MethodNotAllowed)
-		return
-	}
-
-	// get router handle
-	ps := s.router.psGet()
-	regPath, handlers, tsr := root.getValue(urlPath, ps)
-
-	if handlers != nil {
-		ctx.params = ps
-		ctx.regPath = regPath
-		ctx.AddHandlers(handlers...)
-		return
-	}
-
-	// fix path
-	if ctx.Request.Method != "CONNECT" && urlPath != "/" {
-		httpCode := 301 // 永久跳转
-		if ctx.Request.Method != "GET" {
-			httpCode = 307 // 暂时跳转
-		}
-
-		// need add/remove trailing slash
-		if tsr && s.router.RedirectTrailingSlash {
-			if len(urlPath) > 1 && urlPath[len(urlPath)-1] == '/' {
-				// remove trailing slash
-				ctx.Request.URL.Path = urlPath[:len(urlPath)-1]
-			} else {
-				// add trailing slash
-				ctx.Request.URL.Path = urlPath + "/"
-			}
-
-			ctx.AddHandlers(func(context *Context) (interface{}, error) {
-				http.Redirect(ctx.response, ctx.Request, ctx.Request.URL.String(), httpCode)
-				return httpCode, nil
-			})
-			return
-		}
-
-		// maybe need clean path
-		if s.router.RedirectFixedPath {
-			cleanedPath, found := root.findCaseInsensitivePath(
-				CleanURLPath(urlPath),
-				s.router.RedirectTrailingSlash,
-			)
-			if found {
-				ctx.Request.URL.Path = BytesToString(&cleanedPath)
-				ctx.AddHandlers(func(context *Context) (interface{}, error) {
-					http.Redirect(ctx.response, ctx.Request, ctx.Request.URL.String(), httpCode)
-					return httpCode, nil
-				})
-			}
-		}
-	}
-
-	// not found
-	ctx.AddHandlers(s.NotFound)
+func (g *groupRoutes) DELETE(relativePath string, handlers ...Handler) *groupRoutes {
+	return g.reg("DELETE", relativePath, handlers...)
 }
 
 // implement ServeHTTP
@@ -270,10 +237,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// now this is raw response can not use compress
 			w.Header().Del("Content-Encoding")
 			defaultPanicHandler(w, req, err, debug.Stack())
-			Error(debug.Stack())
+			s.logger.Errorf("%s", debug.Stack())
 		}
 	}()
 
+	w.Header().Add("Server", Version)
 	if req.RequestURI == "*" {
 		if req.ProtoAtLeast(1, 1) {
 			w.Header().Set("Connection", "close")
@@ -282,15 +250,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	w.Header().Add("Server", Version)
-
-	c := newContext(w, req, s.globalFilters)
-	s.initContext(c)
-
-	r, e := c.run()
-
-	c.resolveHandlerResult(r, e)
-
-	s.router.psRecycle(c.params)
-	c.release()
+	c := newContext()
+	c.init(s, w, req, s.middleware...)
+	c.run()
+	c.recycle()
 }

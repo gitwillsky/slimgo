@@ -1,9 +1,9 @@
 package slimgo
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/json-iterator/go"
 )
@@ -70,18 +70,23 @@ const tpl = `
 
 // defaultPanicHandler default panic handler
 func defaultPanicHandler(w http.ResponseWriter, req *http.Request, i interface{}, stack []byte) {
-	returnHTML := fmt.Sprintf(tpl,
-		Version, 500, http.StatusText(500), req.Method, req.URL.Path, i, stack)
+	contentType := req.Header.Get("Content-Type")
+	if strings.Contains(contentType, "application/json") {
+		http.Error(w, "Interval Server Error", 500)
+		return
+	}
+
+	returnHTML := fmt.Sprintf(tpl, Version, 500, http.StatusText(500), req.Method, req.URL.Path, i, stack)
 	w.WriteHeader(500)
-	fmt.Fprint(w, returnHTML)
+	_, _ = fmt.Fprint(w, returnHTML)
 }
 
 // defaultNotFoundHandler default notfound handler
-func defaultNotFoundHandler(ctx *Context) (interface{}, error) {
-	return nil, ctx.NewError(404, errors.New("Not Found"))
+func defaultNotFoundHandler(ctx Context) {
+	http.NotFound(ctx.ResponseWriter(), ctx.Request())
 }
 
 // defaultMethodNotAllowHandler default method not allow handler
-func defaultMethodNotAllowHandler(ctx *Context) (interface{}, error) {
-	return nil, ctx.NewError(405, errors.New("Method Not Allowed"))
+func defaultMethodNotAllowHandler(ctx Context) {
+	http.Error(ctx.ResponseWriter(), "Method Not Allowed", 405)
 }

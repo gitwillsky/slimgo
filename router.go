@@ -1,10 +1,7 @@
 package slimgo
 
 import (
-	"bytes"
-	"fmt"
-	"path"
-	"strings"
+	"net/http"
 	"sync"
 )
 
@@ -35,6 +32,16 @@ type Router struct {
 	// For example /FOO and /..//Foo could be redirected to /foo.
 	// RedirectTrailingSlash is independent of this option.
 	RedirectFixedPath bool
+
+	// NotFound Configurable http.Handler which is called when no matching route is
+	// found. If it is not set, http.NotFound is used.
+	NotFound Handler
+	// MethodNotAllowed Configurable http.Handler which is called when a request
+	// cannot be routed and HandleMethodNotAllowed is true.
+	// If it is not set, http.Error with http.StatusMethodNotAllowed is used.
+	// The "Allow" header with allowed request methods is set before the handler
+	// is called.
+	MethodNotAllowed Handler
 }
 
 func (r *Router) psGet() *params {
@@ -57,62 +64,64 @@ func (r *Router) psRecycle(ps *params) {
 	}
 }
 
-// Register registers a new request handle with the given path and method.
-//
-// For GET, POST, PUT, PATCH and DELETE requests the respective shortcut
-// functions can be used.
-//
-// This function is intended for bulk loading and to allow the usage of less
-// frequently used, non-standardized or custom methods (e.g. for internal
-// communication with a proxy).
-func (r *Router) Register(method, urlPath string, handlers ...Handler) {
-	if urlPath[0] != '/' {
-		Alert("path must begin with '/' in path '" + urlPath + "'")
+func (r *Router) GetHandlers(req *http.Request) (handlers []Handler, regPath string, ps *params) {
+	method := req.Method
+	urlPath := req.URL.Path
+
+	root, ok := r.trees[method]
+	if !ok {
+		handlers = append(handlers, r.MethodNotAllowed)
+		return
 	}
 
-	if handlers == nil || len(handlers) == 0 {
-		Alert("handlers can not be null")
+	ps = r.psGet()
+	var tsr bool
+	regPath, handlers, tsr = root.getValue(urlPath, ps)
+
+	if len(handlers) > 0 {
+		return
 	}
 
-	urlPath = CleanURLPath(urlPath)
-
-	if r.trees == nil {
-		r.trees = make(map[string]*node)
-	}
-
-	root := r.trees[method]
-	if root == nil {
-		root = new(node)
-		r.trees[method] = root
-	}
-
-	// Update psMaxLen
-	if pc := countParams(urlPath); pc > r.psMaxLen {
-		r.psMaxLen = pc
-	}
-
-	root.addRoute(urlPath, handlers)
-
-	if GetLevel() >= LevelInformational {
-		buf := bytes.Buffer{}
-		if len(handlers) > 1 {
-			for index := 0; index < len(handlers)-1; index++ {
-				if index > 0 {
-					buf.WriteByte(',')
-				}
-
-				fileName, file, line := GetFuncInfo(handlers[index])
-				fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
-				_, file = path.Split(file)
-				buf.WriteString(fmt.Sprintf("%s[%d]:%s", file, line, fileName))
-			}
-
-			Infof("mapped filter: {%s} to: [%s]%s", buf.String(), method, urlPath)
+	// fix path
+	if method != "CONNECT" && urlPath != "/" {
+		httpCode := 301 // 永久跳转
+		if method != "GET" {
+			httpCode = 307 // 暂时跳转
 		}
 
-		fileName, file, line := GetFuncInfo(handlers[len(handlers)-1])
-		fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
-		_, file = path.Split(file)
-		Infof("mapped handler: {%s} to: [%s]%s", fmt.Sprintf("%s[%d]:%s", file, line, fileName), method, urlPath)
+		// need add/remove trailing slash
+		if tsr && r.RedirectTrailingSlash {
+			if len(urlPath) > 1 && urlPath[len(urlPath)-1] == '/' {
+				// remove trailing slash
+				urlPath = urlPath[:len(urlPath)-1]
+			} else {
+				// add trailing slash
+				urlPath = urlPath + "/"
+			}
+
+			handlers = append(handlers, func(context Context) {
+				http.Redirect(context.ResponseWriter(), context.Request(), urlPath, httpCode)
+			})
+			return
+		}
+
+		// maybe need clean path
+		if r.RedirectFixedPath {
+			cleanedPath, found := root.findCaseInsensitivePath(
+				CleanURLPath(urlPath),
+				r.RedirectTrailingSlash,
+			)
+			if found {
+				urlPath = BytesToString(&cleanedPath)
+				handlers = append(handlers, func(context Context) {
+					http.Redirect(context.ResponseWriter(), context.Request(), urlPath, httpCode)
+				})
+				return
+			}
+		}
 	}
+
+	// not found
+	handlers = append(handlers, r.NotFound)
+	return
 }
