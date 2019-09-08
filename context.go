@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/gitwillsky/slimgo/binding"
 	"io"
 	"net"
 	"net/http"
@@ -19,15 +20,8 @@ import (
 	"time"
 )
 
-// param router param
-type param struct {
-	key   string
-	value string
-}
-
 type Handler func(context Context)
 
-type params []param
 
 type Context interface {
 	Data(key string) (value interface{}, ok bool)
@@ -40,8 +34,8 @@ type Context interface {
 	WriteResponseHeader(code int)
 	JSON(statusCode int, data interface{})
 	String(statusCode int, data string)
-	BindJSON(target interface{}, validators ...func(target interface{}) error) error
-	SaveFiles(folder string, maxLen int, allowExt string) ([]string, error)
+	Bind(target interface{}) error
+	SaveUploadFiles(folder string, maxLen int, allowExt string) ([]string, error)
 	SetCookie(key string, value string, cookiePath string, maxAge int) error
 	SetSecureCookie(secret, cookieName, cookieValue, cookiePath string, cookieMaxDay int) error
 	Cookie(key string) string
@@ -154,7 +148,7 @@ func (c *context) run() {
 			fileName = fileName[strings.LastIndexByte(fileName, '.')+1:]
 			_, file = path.Split(file)
 			c.server.logger.Debugf("%s %s {%s}",
-				c.request.Method, c.request.URL.Path,
+				c.request.Method, c.request.URL.String(),
 				fmt.Sprintf("%s[%d]:%s", file, line, fileName))
 		}
 
@@ -195,7 +189,7 @@ func (c *context) String(statusCode int, data string) {
 // floder 文件所要保存的目录
 // maxLen 文件最大长度
 // 允许的扩展名[正则表达式]，例如：(.png|.jpeg|.jpg|.gif)
-func (c *context) SaveFiles(folder string, maxLen int, allowExt string) ([]string, error) {
+func (c *context) SaveUploadFiles(folder string, maxLen int, allowExt string) ([]string, error) {
 	result := make([]string, 0)
 	// 允许的扩展名正则匹配
 	regExt, err := regexp.Compile(allowExt)
@@ -270,35 +264,9 @@ func (c *context) SaveFiles(folder string, maxLen int, allowExt string) ([]strin
 }
 
 // BindJSON parse json request
-func (c *context) BindJSON(target interface{}, validators ...func(target interface{}) error) error {
-	contentType := c.request.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		return errors.New("invalid Content-Type : " + contentType)
-	}
-
-	dec := json.NewDecoder(c.request.Body)
-	defer c.request.Body.Close()
-
-	if err := dec.Decode(target); err != nil {
-		return err
-	}
-
-	for _, validator := range validators {
-		if err := validator(target); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Proxy returns proxy client ips slice.
-func proxy(r *http.Request) string {
-	// standard format: X-ForWard-For: client, proxy1, proxy2..
-	if ips, ok := r.Header["X-Forwarded-For"]; ok {
-		return ips[0]
-	}
-	return ""
+func (c *context) Bind(target interface{}) error {
+	b := binding.Default(c.request.Method, filterFlags(c.request.Header.Get("Content-Type")))
+	return b.Bind(c.request, target)
 }
 
 // ClientIP() return client IP.

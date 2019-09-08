@@ -67,6 +67,7 @@ func (r *Router) psRecycle(ps *params) {
 func (r *Router) GetHandlers(req *http.Request) (handlers []Handler, regPath string, ps *params) {
 	method := req.Method
 	urlPath := req.URL.Path
+	urlPath = CleanURLPath(urlPath)
 
 	root, ok := r.trees[method]
 	if !ok {

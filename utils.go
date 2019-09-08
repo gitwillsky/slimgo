@@ -187,3 +187,12 @@ func CleanURLPath(urlPath string) string {
 	}
 	return string(buf[:w])
 }
+
+func filterFlags(content string) string {
+	for i, char := range content {
+		if char == ' ' || char == ';' {
+			return content[:i]
+		}
+	}
+	return content
+}

@@ -9,6 +9,14 @@ import (
 	"unicode/utf8"
 )
 
+// param router param
+type param struct {
+	key   string
+	value string
+}
+
+type params []param
+
 func min(a, b int) int {
 	if a <= b {
 		return a
@@ -80,6 +88,8 @@ func (n *node) addRoute(path string, handlers []Handler) {
 	n.priority++
 	numParams := countParams(path)
 
+	parentRegPathIndex := 0
+
 	// non-empty tree
 	if len(n.path) > 0 || len(n.children) > 0 {
 	walk:
@@ -101,14 +111,13 @@ func (n *node) addRoute(path string, handlers []Handler) {
 			// Split edge
 			if i < len(n.path) {
 				child := node{
-					regPath:   regPath,
 					path:      n.path[i:],
 					wildChild: n.wildChild,
-					nType:     staticType,
 					indices:   n.indices,
 					children:  n.children,
 					value:     n.value,
 					priority:  n.priority - 1,
+					regPath:   n.regPath,
 				}
 
 				// Update maxParams (max of all children)
@@ -124,6 +133,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 				n.path = path[:i]
 				n.value = nil
 				n.wildChild = false
+				n.regPath = regPath[:parentRegPathIndex+i]
 			}
 
 			// Make new node a child of this node
@@ -131,6 +141,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 				path = path[i:]
 
 				if n.wildChild {
+					parentRegPathIndex += len(n.path)
 					n = n.children[0]
 					n.priority++
 
@@ -141,31 +152,30 @@ func (n *node) addRoute(path string, handlers []Handler) {
 					numParams--
 
 					// Check if the wildcard matches
-					if len(path) >= len(n.path) && n.path == path[:len(n.path)] &&
-					// Check for longer wildcard, e.g. :name and :names
-						(len(n.path) >= len(path) || path[len(n.path)] == '/') {
-						continue walk
-					} else {
-						// Wildcard conflict
-						var pathSeg string
-						if n.nType == catchAllType {
-							pathSeg = path
-						} else {
-							pathSeg = strings.SplitN(path, "/", 2)[0]
+					if len(path) >= len(n.path) && n.path == path[:len(n.path)] {
+						// check for longer wildcard, e.g. :name and :names
+						if len(n.path) >= len(path) || path[len(n.path)] == '/' {
+							continue walk
 						}
-						prefix := regPath[:strings.Index(regPath, pathSeg)] + n.path
-						panic("'" + pathSeg +
-							"' in new path '" + regPath +
-							"' conflicts with existing wildcard '" + n.path +
-							"' in existing prefix '" + prefix +
-							"'")
 					}
+
+					pathSeg := path
+					if n.nType != catchAllType {
+						pathSeg = strings.SplitN(path, "/", 2)[0]
+					}
+					prefix := regPath[:strings.Index(regPath, pathSeg)] + n.path
+					panic("'" + pathSeg +
+						"' in new path '" + regPath +
+						"' conflicts with existing wildcard '" + n.path +
+						"' in existing prefix '" + prefix +
+						"'")
 				}
 
 				c := path[0]
 
 				// slash after param
 				if n.nType == paramType && c == '/' && len(n.children) == 1 {
+					parentRegPathIndex += len(n.path)
 					n = n.children[0]
 					n.priority++
 					continue walk
@@ -174,6 +184,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 				// Check if a child with the next path byte exists
 				for i := 0; i < len(n.indices); i++ {
 					if c == n.indices[i] {
+						parentRegPathIndex += len(n.path)
 						i = n.incrementChildPrio(i)
 						n = n.children[i]
 						continue walk
@@ -186,6 +197,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 					n.indices += string([]byte{c})
 					child := &node{
 						maxParams: numParams,
+						regPath:   regPath,
 					}
 					n.children = append(n.children, child)
 					n.incrementChildPrio(len(n.indices) - 1)
@@ -196,7 +208,7 @@ func (n *node) addRoute(path string, handlers []Handler) {
 
 			} else if i == len(path) { // Make node a (in-path) leaf
 				if n.value != nil {
-					panic("a handle is already registered for path '" + regPath + "'")
+					panic("handlers are already registered for path '" + regPath + "'")
 				}
 				n.value = handlers
 			}
@@ -208,11 +220,10 @@ func (n *node) addRoute(path string, handlers []Handler) {
 	}
 }
 
-func (n *node) insertChild(numParams int, path, fullPath string, handlers []Handler) {
+func (n *node) insertChild(numParams int, path, regPath string, handlers []Handler) {
 	var offset int // already handled bytes of the path
-	regPath := fullPath
 
-	// find prefix until first wildcard (beginning with ':'' or '*'')
+	// find prefix until first wildcard (beginning with ':' or '*')
 	for i, max := 0, len(path); numParams > 0; i++ {
 		c := path[i]
 		if c != ':' && c != '*' {
@@ -254,6 +265,7 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 			child := &node{
 				nType:     paramType,
 				maxParams: numParams,
+				regPath:   regPath,
 			}
 			n.children = []*node{child}
 			n.wildChild = true
@@ -270,6 +282,7 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 				child := &node{
 					maxParams: numParams,
 					priority:  1,
+					regPath:   regPath,
 				}
 				n.children = []*node{child}
 				n = child
@@ -297,6 +310,7 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 				wildChild: true,
 				nType:     catchAllType,
 				maxParams: 1,
+				regPath:   regPath,
 			}
 			n.children = []*node{child}
 			n.indices = string(path[i])
@@ -305,12 +319,12 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 
 			// second node: node holding the variable
 			child = &node{
-				regPath:   regPath,
 				path:      path[i:],
 				nType:     catchAllType,
 				maxParams: 1,
 				value:     handlers,
 				priority:  1,
+				regPath:   regPath,
 			}
 			n.children = []*node{child}
 
@@ -320,8 +334,8 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 
 	// insert remaining path part and handle to the leaf
 	n.path = path[offset:]
-	n.regPath = regPath
 	n.value = handlers
+	n.regPath = regPath
 }
 
 // Returns the handle registered with the given path (key). The values of
@@ -330,7 +344,7 @@ func (n *node) insertChild(numParams int, path, fullPath string, handlers []Hand
 // made if a handle exists with an extra (without the) trailing slash for the
 // given path.
 func (n *node) getValue(path string, ps *params) (regPath string, handlers []Handler, tsr bool) {
-walk: // outer loop for walking the tree
+walk: // Outer loop for walking the tree
 	for {
 		if len(path) > len(n.path) {
 			if path[:len(n.path)] == n.path {
@@ -352,7 +366,6 @@ walk: // outer loop for walking the tree
 					// trailing slash if a leaf exists for that path.
 					tsr = (path == "/" && n.value != nil)
 					return
-
 				}
 
 				// handle wildcard child
@@ -366,12 +379,10 @@ walk: // outer loop for walking the tree
 					}
 
 					// save param value
-					if ps != nil {
-						i := len(*ps)
-						*ps = (*ps)[:i+1] // expand slice within preallocated capacity
-						(*ps)[i].key = n.path[1:]
-						(*ps)[i].value = path[:end]
-					}
+					i := len(*ps)
+					*ps = (*ps)[:i+1] // expand slice within preallocated capacity
+					(*ps)[i].key = n.path[1:]
+					(*ps)[i].value = path[:end]
 
 					// we need to go deeper!
 					if end < len(path) {
@@ -382,14 +393,15 @@ walk: // outer loop for walking the tree
 						}
 
 						// ... but we can't
-						tsr = (len(path) == end+1)
+						tsr = len(path) == end+1
 						return
 					}
 
 					if handlers = n.value; handlers != nil {
 						regPath = n.regPath
 						return
-					} else if len(n.children) == 1 {
+					}
+					if len(n.children) == 1 {
 						// No handle found. Check if a handle for this path + a
 						// trailing slash exists for TSR recommendation
 						n = n.children[0]
@@ -399,16 +411,12 @@ walk: // outer loop for walking the tree
 					return
 
 				case catchAllType:
-					// save param value
-					if ps != nil {
-						i := len(*ps)
-						*ps = (*ps)[:i+1] // expand slice within preallocated capacity
-						(*ps)[i].key = n.path[2:]
-						(*ps)[i].value = path
-					}
-
-					regPath = n.regPath
+					i := len(*ps)
+					*ps = (*ps)[:i+1] // expand slice within preallocated capacity
+					(*ps)[i].key = n.path[2:]
+					(*ps)[i].value = path
 					handlers = n.value
+					regPath = n.regPath
 					return
 
 				default:
