@@ -22,9 +22,9 @@ import (
 
 type Handler func(context Context)
 
-
 type Context interface {
 	Data(key string) (value interface{}, ok bool)
+	MustData(key string) interface{}
 	PutData(key string, value interface{})
 	Param(key string) string
 	RegRelativePath() string
@@ -100,6 +100,14 @@ func (c *context) recycle() {
 // Data get data value
 func (c *context) Data(key string) (value interface{}, ok bool) {
 	return c.data.Load(key)
+}
+
+func (c *context) MustData(key string) interface{} {
+	v, ok := c.data.Load(key)
+	if !ok {
+		panic(fmt.Errorf("can not get key %s value", key))
+	}
+	return v
 }
 
 func (c *context) PutData(key string, value interface{}) {
